@@ -132,3 +132,93 @@ JOIN Order_items oi on o.Order_Id=oi.Order_Id
 JOIN Products p on p.Product_id=oi.Product_id
 GROUP BY p.Catgeory
 Order by unique_customers desc;
+
+--- Q5: Monthly revenue trend per category (Moderate)
+Select MONTH(o.Order_date) as month ,p.Catgeory,
+SUM(oi.Quantity*oi.Item_price) as monthly_revenue
+FROM Orders o
+JOIN Order_items oi ON o.Order_Id=oi.Order_Id
+JOIN Products p ON oi.Product_id=p.Product_id
+GROUP BY MONTH(o.Order_date),p.Catgeory
+Order By month,Catgeory
+
+---Q6: Rank products by revenue within each category (Hard)
+Select P.PRODUCT_NAME,P.Catgeory,SUM(oi.Quantity*oi.Item_price) as Revenue,
+RANK() OVER (PARTITION BY P.Catgeory Order by SUM(oi.Quantity*oi.Item_price) DESC) as Revenue_rank
+from Order_items oi
+JOIN Products P on oi.Product_id=P.Product_id
+Group By P.PRODUCT_NAME,P.Catgeory
+
+--Q7: Identify customers who placed multiple high-value orders (> $100) (Hard)
+
+Select Customer_id 
+from Orders
+where Total_Amount > 100
+Group by Customer_id 
+HAVING COUNT(*) > 1
+
+--Q8: Days since the last order per customer (Hard - Window Function)
+
+Select Customer_id,Order_Id,Order_date,
+	   DATEDIFF(DAY,Order_date,LAG(Order_date) OVER (PARTITION BY Customer_id Order by order_date)) as days_since_last_order
+from Orders;
+
+-- Q9: First product ordered by each customer (Very Hard)
+-- This will give multiple products as multiple products can be ordered by 1 orderId
+WITH customer_first_order AS (
+    SELECT Customer_id, MIN(Order_date) AS first_order_date
+    FROM Orders
+    GROUP BY Customer_id
+),
+joined_data AS (
+    SELECT o.Customer_id, o.Order_id, o.Order_date, oi.Product_id, p.Product_name
+    FROM Orders o
+    JOIN Order_items oi ON o.Order_id = oi.Order_Id
+    JOIN Products p ON oi.Product_id = p.Product_id
+)
+SELECT cf.Customer_id,j.Order_Id, j.Product_id, j.Product_name
+FROM joined_data j
+JOIN customer_first_order cf 
+    ON j.Customer_id = cf.Customer_id 
+    AND j.Order_date = cf.first_order_date;
+
+-- Customer first order within order_id
+with customer_first_order as (
+SELECT
+	o.Customer_id,
+	o.Order_Id,
+	o.Order_date,
+	oi.Product_id,
+	p.PRODUCT_NAME,
+	ROW_NUMBER() OVER (PARTITION BY o.Customer_id Order by o.Order_date,o.Order_id ) as rnk
+FROM Orders o
+JOIN Order_items oi ON o.Order_Id=oi.Order_Id
+JOIN Products p ON oi.Product_id=p.Product_id
+)
+select Customer_id,Product_id,PRODUCT_NAME
+from customer_first_order
+where rnk=1;
+
+-- Q10: Most popular product in each region (Very Hard)
+
+SELECT c.Region,p.PRODUCT_NAME,COUNT(*) as order_count,
+		 DENSE_RANK() OVER (PARTITION BY c.region ORDER BY COUNT(*) DESC) as region_rank
+from Customers c
+JOIN Orders o ON c.Customer_id=o.Customer_id
+JOIN Order_items oi ON oi.Order_Id=o.Order_Id
+JOIN Products p On oi.Product_id=p.Product_id
+GROUP BY c.Region,p.PRODUCT_NAME
+
+--- Q11: Detect returning customers within 30 days of last order (Very Hard - Self Join)
+
+select a.customer_id,a.order_id AS current_order,b.order_id AS previous_order,
+       DATEDIFF(DAY,a.order_date,b.order_date) as days_between
+FROM Orders a
+JOIN Orders b ON a.Customer_id=b.Customer_id AND b.Order_date < a.Order_date
+WHERE DATEDIFF(DAY,a.order_date,b.order_date) <=30;
+
+-- Q12: Detect revenue spikes using moving average (Very Hard - Window Function)
+SELECT Order_date,SUM(Total_Amount) as daily_revenue,
+AVG(SUM(Total_Amount)) OVER (ORDER BY Order_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as weekly_avg
+FROM Orders
+GROUP BY Order_date
